@@ -1133,6 +1133,11 @@ learning_rate_policy get_policy(char *s)
 
 void parse_net_options(list *options, network *net)
 {
+  // matthaip: custom fields
+  net->epochs_between_val = option_find_int(options, "epochs_between_val", 4);
+  net->min_steps_between_val = option_find_int(options, "min_steps_between_val", 100);
+  net->num_steps_between_saves = option_find_int(options, "num_steps_between_saves", 1000);
+
     net->max_batches = option_find_int(options, "max_batches", 0);
     net->batch = option_find_int(options, "batch",1);
     net->learning_rate = option_find_float(options, "learning_rate", .001);

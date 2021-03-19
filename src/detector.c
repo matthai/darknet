@@ -298,14 +298,18 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         const int iteration = get_current_iteration(net);
         //i = get_current_batch(net);
 
-        int calc_map_for_each = 4 * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs
-        calc_map_for_each = fmax(calc_map_for_each, 100);
+        // matthaip: using custom fields
+        /* int calc_map_for_each = 4 * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs */
+        /* calc_map_for_each = fmax(calc_map_for_each, 100); */
+        int calc_map_for_each = net.epochs_between_val * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs
+        calc_map_for_each = fmax(calc_map_for_each, net.min_steps_between_val);
         int next_map_calc = iter_map + calc_map_for_each;
-        next_map_calc = fmax(next_map_calc, net.burn_in);
+        // matthaip: disabling these
+        //next_map_calc = fmax(next_map_calc, net.burn_in);
         //next_map_calc = fmax(next_map_calc, 400);
         if (calc_map) {
             printf("\n (next mAP calculation at %d iterations) ", next_map_calc);
-            if (mean_average_precision > 0) printf("\n Last accuracy mAP@0.5 = %2.2f %%, best = %2.2f %% ", mean_average_precision * 100, best_map * 100);
+            if (mean_average_precision > 0) printf("\n[%d] Last accuracy mAP@0.5 = %2.2f %%, best = %2.2f %% ", iteration, mean_average_precision * 100, best_map * 100);
         }
 
         if (net.cudnn_half) {
@@ -382,7 +386,10 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 
         //if (i % 1000 == 0 || (i < 1000 && i % 100 == 0)) {
         //if (i % 100 == 0) {
-        if (iteration >= (iter_save + 1000) || iteration % 1000 == 0) {
+        // matthaip: adding parameter
+        //if (iteration >= (iter_save + 1000) || iteration % 1000 == 0) {
+        if (iteration >= (iter_save + net.num_steps_between_saves) ||
+            iteration % net.num_steps_between_saves == 0) {
             iter_save = iteration;
 #ifdef GPU
             if (ngpus != 1) sync_nets(nets, ngpus, 0);

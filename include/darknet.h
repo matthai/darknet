@@ -707,6 +707,11 @@ typedef struct network {
     int *total_bbox;
     int *rewritten_bbox;
 
+  //matthaip: custom fields
+  int epochs_between_val;  //default 4
+  int min_steps_between_val;  //default 100
+  int num_steps_between_saves; // default 1000
+
     float learning_rate;
     float learning_rate_min;
     float learning_rate_max;
