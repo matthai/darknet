@@ -1,3 +1,4 @@
+#include <stdio.h>
 #include <stdlib.h>
 #include "darknet.h"
 #include "network.h"
@@ -99,7 +100,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
     }
 
     int imgs = net.batch * net.subdivisions * ngpus;
-    printf("Learning Rate: %g, Momentum: %g, Decay: %g\n", net.learning_rate, net.momentum, net.decay);
+    printf("Learning Rate: %g, Momentum: %g, Decay: %g\n", net.learning_rate, net.momentum, net.decay); fflush(stdout);
     data train, buffer;
 
     layer l = net.layers[net.n - 1];
@@ -107,7 +108,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         layer lk = net.layers[k];
         if (lk.type == YOLO || lk.type == GAUSSIAN_YOLO || lk.type == REGION) {
             l = lk;
-            printf(" Detection layer: %d - type = %d \n", k, l.type);
+            printf(" Detection layer: %d - type = %d \n", k, l.type); fflush(stdout);
         }
     }
 
@@ -181,7 +182,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         if (net.sequential_subdivisions) args.threads = net.sequential_subdivisions * ngpus;
         else args.threads = net.subdivisions * ngpus;
         args.mini_batch = net.batch / net.time_steps;
-        printf("\n Tracking! batch = %d, subdiv = %d, time_steps = %d, mini_batch = %d \n", net.batch, net.subdivisions, net.time_steps, args.mini_batch);
+        printf("\n Tracking! batch = %d, subdiv = %d, time_steps = %d, mini_batch = %d \n", net.batch, net.subdivisions, net.time_steps, args.mini_batch); fflush(stdout);
     }
     //printf(" imgs = %d \n", imgs);
 
@@ -189,13 +190,16 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 
     int count = 0;
     double time_remaining, avg_time = -1, alpha_time = 0.01;
+    int should_stop = 0;
+
 
     //while(i*imgs < N*120){
-    while (get_current_iteration(net) < net.max_batches) {
+    while ((get_current_iteration(net) < net.max_batches) &&
+           (!should_stop)){
         if (l.random && count++ % 10 == 0) {
             float rand_coef = 1.4;
             if (l.random != 1.0) rand_coef = l.random;
-            printf("Resizing, random_coef = %.2f \n", rand_coef);
+            printf("Resizing, random_coef = %.2f \n", rand_coef); fflush(stdout);
             float random_val = rand_scale(rand_coef);    // *x or /x
             int dim_w = roundl(random_val*init_w / net.resize_step + 1) * net.resize_step;
             int dim_h = roundl(random_val*init_h / net.resize_step + 1) * net.resize_step;
@@ -231,10 +235,10 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
                 net.batch = dim_b;
                 imgs = net.batch * net.subdivisions * ngpus;
                 args.n = imgs;
-                printf("\n %d x %d  (batch = %d) \n", dim_w, dim_h, net.batch);
+                printf("\n %d x %d  (batch = %d) \n", dim_w, dim_h, net.batch); fflush(stdout);
             }
             else
-                printf("\n %d x %d \n", dim_w, dim_h);
+              printf("\n %d x %d \n", dim_w, dim_h); fflush(stdout);
 
             pthread_join(load_thread, 0);
             train = buffer;
@@ -252,9 +256,10 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         if (net.track) {
             net.sequential_subdivisions = get_current_seq_subdivisions(net);
             args.threads = net.sequential_subdivisions * ngpus;
-            printf(" sequential_subdivisions = %d, sequence = %d \n", net.sequential_subdivisions, get_sequence_value(net));
+            printf(" sequential_subdivisions = %d, sequence = %d \n", net.sequential_subdivisions, get_sequence_value(net)); fflush(stdout);
         }
         load_thread = load_data(args);
+
         //wait_key_cv(500);
 
         /*
@@ -273,12 +278,13 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         }
         save_image(im, "truth11");
         */
-
         const double load_time = (what_time_is_it_now() - time);
-        printf("Loaded: %lf seconds", load_time);
-        if (load_time > 0.1 && avg_loss > 0) printf(" - performance bottleneck on CPU or Disk HDD/SSD");
-        printf("\n");
-
+        printf("Loaded: %lf seconds\n", load_time); fflush(stdout);
+        if (load_time > 0.1 && avg_loss > 0){
+          printf(" - performance bottleneck on CPU or Disk HDD/SSD");
+          printf("\n");
+          fflush(stdout);
+        }
         time = what_time_is_it_now();
         float loss = 0;
 #ifdef GPU
@@ -292,6 +298,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 #else
         loss = train_network(net, train);
 #endif
+        double train_latency = what_time_is_it_now() - time;
         if (avg_loss < 0 || avg_loss != avg_loss) avg_loss = loss;    // if(-inf or nan)
         avg_loss = avg_loss*.9 + loss*.1;
 
@@ -301,15 +308,32 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
         // matthaip: using custom fields
         /* int calc_map_for_each = 4 * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs */
         /* calc_map_for_each = fmax(calc_map_for_each, 100); */
-        int calc_map_for_each = net.epochs_between_val * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs
+        int calc_map_for_each = (int)net.epochs_between_val * train_images_num / (net.batch * net.subdivisions);  // calculate mAP for each 4 Epochs
         calc_map_for_each = fmax(calc_map_for_each, net.min_steps_between_val);
         int next_map_calc = iter_map + calc_map_for_each;
         // matthaip: disabling these
         //next_map_calc = fmax(next_map_calc, net.burn_in);
         //next_map_calc = fmax(next_map_calc, 400);
         if (calc_map) {
-            printf("\n (next mAP calculation at %d iterations) ", next_map_calc);
-            if (mean_average_precision > 0) printf("\n[%d] Last accuracy mAP@0.5 = %2.2f %%, best = %2.2f %% ", iteration, mean_average_precision * 100, best_map * 100);
+            printf("\n(next mAP calculation at %d iterations) map %0.9f ",
+                   next_map_calc, mean_average_precision);
+            fflush(stdout);
+            if ((mean_average_precision) > 0  && (mean_average_precision <= 1.0)) {
+              printf("\n[%d] Last accuracy mAP@0.5 = %2.2f %%, best = %2.2f %% ",
+                     iteration, mean_average_precision * 100, best_map * 100);
+              fflush(stdout);
+              fprintf(stderr, "\ngetting char+"); fflush(stderr);
+              char action = (char)getchar();
+              if(action == 'q'){
+                fprintf(stderr, "\nearly stopping darknet training");
+                fflush(stderr);
+                should_stop = 1;
+              }
+            }
+            else{
+              printf("\ntest 1\n");
+              fflush(stdout);
+            }
         }
 
         if (net.cudnn_half) {
@@ -317,13 +341,13 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
             else fprintf(stderr, "\n Tensor Cores are used.\n");
             fflush(stderr);
         }
-        printf("\n %d: %f, %f avg loss, %f rate, %lf seconds, %d images, %f hours left\n", iteration, loss, avg_loss, get_current_rate(net), (what_time_is_it_now() - time), iteration*imgs, avg_time);
+        printf("\n %d: %f, %f avg loss, %f rate, %lf seconds, %d images, %f hours left\n", iteration, loss, avg_loss, get_current_rate(net), train_latency, iteration*imgs, avg_time);
         fflush(stdout);
 
         int draw_precision = 0;
         if (calc_map && (iteration >= next_map_calc || iteration == net.max_batches)) {
             if (l.random) {
-                printf("Resizing to initial size: %d x %d ", init_w, init_h);
+              printf("Resizing to initial size: %d x %d ", init_w, init_h); fflush(stdout);
                 args.w = init_w;
                 args.h = init_h;
                 int k;
@@ -339,7 +363,7 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
                     net.batch = init_b;
                     imgs = init_b * net.subdivisions * ngpus;
                     args.n = imgs;
-                    printf("\n %d x %d  (batch = %d) \n", init_w, init_h, init_b);
+                    printf("\n %d x %d  (batch = %d) \n", init_w, init_h, init_b); fflush(stdout);
                 }
                 pthread_join(load_thread, 0);
                 free_data(train);
@@ -358,10 +382,10 @@ void train_detector(char *datacfg, char *cfgfile, char *weightfile, int *gpus, i
 
             iter_map = iteration;
             mean_average_precision = validate_detector_map(datacfg, cfgfile, weightfile, 0.25, 0.5, 0, net.letter_box, &net_map);// &net_combined);
-            printf("\n mean_average_precision (mAP@0.5) = %f \n", mean_average_precision);
-            if (mean_average_precision > best_map) {
+            printf("\n mean_average_precision (mAP@0.5) = %f \n", mean_average_precision); fflush(stdout);
+            if (mean_average_precision > best_map && mean_average_precision <= 1.0) {
                 best_map = mean_average_precision;
-                printf("New best mAP!\n");
+                printf("New best mAP!\n"); fflush(stdout);
                 char buff[256];
                 sprintf(buff, "%s/%s_best.weights", backup_directory, base);
                 save_weights(net, buff);
@@ -1606,7 +1630,16 @@ void test_detector(char *datacfg, char *cfgfile, char *weightfile, char *filenam
     int names_size = 0;
     char **names = get_labels_custom(name_list, &names_size); //get_labels(name_list);
 
-    image **alphabet = load_alphabet();
+    // image **alphabet = load_alphabet();
+    image **alphabet = NULL;
+    if(!dont_show){
+      printf("SHOWING: dont_show is %d", dont_show);
+      load_alphabet();
+    }
+    else{
+      printf("NOT SHOWING: dont_show is %d", dont_show);
+    }
+
     network net = parse_network_cfg_custom(cfgfile, 1, 1); // set batch=1
     if (weightfile) {
         load_weights(&net, weightfile);
@@ -1775,7 +1808,14 @@ void draw_object(char *datacfg, char *cfgfile, char *weightfile, char *filename,
     int names_size = 0;
     char **names = get_labels_custom(name_list, &names_size); //get_labels(name_list);
 
-    image **alphabet = load_alphabet();
+    image **alphabet = NULL;
+    if(!dont_show){
+      printf("SHOWING: dont_show is %d", dont_show);
+      load_alphabet();
+    }
+    else{
+      printf("NOT SHOWING: dont_show is %d", dont_show);
+    }
     network net = parse_network_cfg(cfgfile);// parse_network_cfg_custom(cfgfile, 1, 1); // set batch=1
     net.adversarial = 1;
     set_batch_network(&net, 1);

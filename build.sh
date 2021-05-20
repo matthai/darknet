@@ -48,7 +48,7 @@ fi
 # RELEASE
 mkdir -p build_release
 cd build_release
-cmake .. -DCMAKE_BUILD_TYPE=Release ${vcpkg_define} ${vcpkg_triplet_define} ${additional_defines} ${additional_build_setup}
+cmake .. -DENABLE_OPENCV=OFF -DCMAKE_BUILD_TYPE=Release ${vcpkg_define} ${vcpkg_triplet_define} ${additional_defines} ${additional_build_setup}
 cmake --build . --target install -- -j${number_of_build_workers}
 #cmake --build . --target install --parallel ${number_of_build_workers}  #valid only for CMake 3.12+
 rm -f DarknetConfig.cmake
